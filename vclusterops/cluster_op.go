@@ -227,7 +227,7 @@ func (op *opBase) setLogger(logger vlog.Printer) {
 func (op *opBase) parseAndCheckResponse(host, responseContent string, responseObj any) error {
 	err := util.GetJSONLogErrors(responseContent, &responseObj, op.name, op.logger)
 	if err != nil {
-		op.logger.Error(err, "fail to parse response on host, detail", "host", host)
+		op.logger.Error(err, "fail to parse response on host, detail", "host", host, "original responseObj", responseObj)
 		return err
 	}
 	op.logger.Info("JSON response", "host", host, "responseObj", responseObj)
