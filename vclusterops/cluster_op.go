@@ -248,11 +248,11 @@ func (op *opBase) parseAndCheckStringResponse(host, responseContent string) (str
 	return responseStr, err
 }
 
-func (op *opBase) parseAndCheckGenericJSONResponse(host, responseContent string) (string, error) {
+func (op *opBase) parseAndCheckGenericJSONResponse(host, responseContent string) (nmaGenericJSONResponse, error) {
 	var genericResponse nmaGenericJSONResponse
-	err := op.parseAndCheckResponse(host, responseContent, &genericResponse.RespStr)
+	err := op.parseAndCheckResponse(host, responseContent, &genericResponse)
 
-	return genericResponse.RespStr, err
+	return genericResponse, err
 }
 
 func (op *opBase) setClusterHTTPRequestName() {
