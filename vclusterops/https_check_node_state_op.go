@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type httpsCheckNodeStateOp struct {
@@ -28,28 +27,28 @@ type httpsCheckNodeStateOp struct {
 	opHTTPSBase
 }
 
-func makeHTTPSCheckNodeStateOp(logger vlog.Printer, hosts []string,
+func makeHTTPSCheckNodeStateOp(hosts []string,
 	useHTTPPassword bool,
 	userName string,
 	httpsPassword *string,
 ) (httpsCheckNodeStateOp, error) {
-	nodeStateChecker := httpsCheckNodeStateOp{}
-	nodeStateChecker.logger = logger.WithName(nodeStateChecker.name)
-	nodeStateChecker.name = "HTTPCheckNodeStateOp"
+	op := httpsCheckNodeStateOp{}
+	op.name = "HTTPCheckNodeStateOp"
+	op.description = "Check node state from running database"
 	// The hosts are the ones we are going to talk to.
 	// They can be a subset of the actual host information that we return,
 	// as if any of the hosts is responsive, spread can give us the info of all nodes
-	nodeStateChecker.hosts = hosts
-	nodeStateChecker.useHTTPPassword = useHTTPPassword
+	op.hosts = hosts
+	op.useHTTPPassword = useHTTPPassword
 
-	err := util.ValidateUsernameAndPassword(nodeStateChecker.name, useHTTPPassword, userName)
+	err := util.ValidateUsernameAndPassword(op.name, useHTTPPassword, userName)
 	if err != nil {
-		return nodeStateChecker, err
+		return op, err
 	}
 
-	nodeStateChecker.userName = userName
-	nodeStateChecker.httpsPassword = httpsPassword
-	return nodeStateChecker, nil
+	op.userName = userName
+	op.httpsPassword = httpsPassword
+	return op, nil
 }
 
 func (op *httpsCheckNodeStateOp) setupClusterHTTPRequest(hosts []string) error {
@@ -90,6 +89,7 @@ func (op *httpsCheckNodeStateOp) processResult(execContext *opEngineExecContext)
 
 		if result.isUnauthorizedRequest() {
 			op.logger.PrintError("[%s] unauthorized request: %s", op.name, result.content)
+			execContext.hostsWithWrongAuth = append(execContext.hostsWithWrongAuth, host)
 			// return here because we assume that
 			// we will get the same error across other nodes
 			allErrs = errors.Join(allErrs, result.err)
@@ -110,32 +110,26 @@ func (op *httpsCheckNodeStateOp) processResult(execContext *opEngineExecContext)
 
 		// parse the /nodes endpoint response
 		respondingNodeCount++
-		nodesInfo := nodesInfo{}
-		err := op.parseAndCheckResponse(host, result.content, &nodesInfo)
+		nodesStates := nodesStateInfo{}
+		err := op.parseAndCheckResponse(host, result.content, &nodesStates)
 		if err != nil {
 			err = fmt.Errorf("[%s] fail to parse result on host %s: %w",
 				op.name, host, err)
 			allErrs = errors.Join(allErrs, err)
 			continue
 		}
+
+		nodesInfo := nodesInfo{}
+		for _, node := range nodesStates.NodeList {
+			n := node.asNodeInfoWithoutVer()
+			nodesInfo.NodeList = append(nodesInfo.NodeList, n)
+		}
 		// successful case, write the result into exec context
 		execContext.nodesInfo = nodesInfo.NodeList
+		op.logger.PrintInfo("reporting results as obtained from the host [%s] ", host)
 		return nil
 	}
 
-	// If none of the requests succeed on any node, we
-	// can assume that all nodes are down.
-	if respondingNodeCount == 0 {
-		// this list is built for Go client
-		var nodeStates []NodeInfo
-		for _, host := range op.hosts {
-			nodeInfo := NodeInfo{}
-			nodeInfo.Address = host
-			nodeInfo.State = "DOWN"
-			nodeStates = append(nodeStates, nodeInfo)
-		}
-		execContext.nodesInfo = nodeStates
-	}
 	return allErrs
 }
 

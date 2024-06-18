@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -20,7 +20,11 @@ import (
 	"fmt"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
+)
+
+const (
+	spreadConf  = "config/spread"
+	verticaConf = "config/vertica"
 )
 
 type nmaDownloadConfigOp struct {
@@ -32,7 +36,6 @@ type nmaDownloadConfigOp struct {
 }
 
 func makeNMADownloadConfigOp(
-	logger vlog.Printer,
 	opName string,
 	sourceConfigHost []string,
 	endpoint string,
@@ -41,9 +44,13 @@ func makeNMADownloadConfigOp(
 ) nmaDownloadConfigOp {
 	op := nmaDownloadConfigOp{}
 	op.name = opName
-	op.logger = logger.WithName(op.name)
 	op.hosts = sourceConfigHost
 	op.endpoint = endpoint
+	if op.endpoint == verticaConf {
+		op.description = "Get contents of vertica.conf"
+	} else if op.endpoint == spreadConf {
+		op.description = "Get contents of spread.conf"
+	}
 	op.fileContent = fileContent
 	op.vdb = vdb
 
@@ -103,9 +110,9 @@ func (op *nmaDownloadConfigOp) prepare(execContext *opEngineExecContext) error {
 		// If vdb contains nodes' info, we will check if there are any primary up nodes.
 		// If we found any primary up nodes, we set catalogPathMap based on their info in vdb.
 	} else {
-		// This case is used for restarting nodes operation.
+		// This case is used for starting nodes operation.
 		// Otherwise, we set catalogPathMap from the catalog editor (start_db, create_db).
-		// For restartNodes, If the sourceConfigHost input is a nil value, we find any UP primary nodes as source host to update the host input.
+		// For startNodes, If the sourceConfigHost input is a nil value, we find any UP primary nodes as source host to update the host input.
 		// we update the catalogPathMap for next download operation's steps from node information by using HTTPS /v1/nodes
 		var primaryUpHosts []string
 		for host, vnode := range op.vdb.HostNodeMap {

@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -18,20 +18,20 @@ package vclusterops
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type nmaStageVerticaLogsOp struct {
 	scrutinizeOpBase
 	logSizeLimitBytes int64
-	logAgeHours       int // The maximum age of archieved logs in hours to retrieve
+	logAgeMaxHours    int // The maximum age of archived logs in hours to retrieve
+	logAgeMinHours    int // The minimum age of archived logs in hours to retrieve
 }
 
 type stageVerticaLogsRequestData struct {
 	CatalogPath       string `json:"catalog_path"`
 	LogSizeLimitBytes int64  `json:"log_size_limit_bytes"`
-	LogAgeHours       int    `json:"log_age_hours"`
+	LogAgeMaxHours    int    `json:"log_max_age_hours,omitempty"`
+	LogAgeMinHours    int    `json:"log_min_age_hours,omitempty"`
 }
 
 type stageVerticaLogsResponseData struct {
@@ -40,19 +40,17 @@ type stageVerticaLogsResponseData struct {
 	ModTime   string `json:"mod_time"`
 }
 
-func makeNMAStageVerticaLogsOp(logger vlog.Printer,
+func makeNMAStageVerticaLogsOp(
 	id string,
 	hosts []string,
-	hostNodeNameMap map[string]string,
-	hostCatPathMap map[string]string,
+	hostNodeNameMap, hostCatPathMap map[string]string,
 	logSizeLimitBytes int64,
-	logAgeHours int) (nmaStageVerticaLogsOp, error) {
+	logAgeMaxHours, logAgeMinHours int) (nmaStageVerticaLogsOp, error) {
 	// base members
 	op := nmaStageVerticaLogsOp{}
 	op.name = "NMAStageVerticaLogsOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Stage Vertica logs"
 	op.hosts = hosts
-
 	// scrutinize members
 	op.id = id
 	op.batch = scrutinizeBatchNormal
@@ -63,7 +61,8 @@ func makeNMAStageVerticaLogsOp(logger vlog.Printer,
 
 	// custom members
 	op.logSizeLimitBytes = logSizeLimitBytes
-	op.logAgeHours = logAgeHours
+	op.logAgeMaxHours = logAgeMaxHours
+	op.logAgeMinHours = logAgeMinHours
 
 	// the caller is responsible for making sure hosts and maps match up exactly
 	err := validateHostMaps(hosts, hostNodeNameMap, hostCatPathMap)
@@ -76,7 +75,8 @@ func (op *nmaStageVerticaLogsOp) setupRequestBody(hosts []string) error {
 		stageVerticaLogsData := stageVerticaLogsRequestData{}
 		stageVerticaLogsData.CatalogPath = op.hostCatPathMap[host]
 		stageVerticaLogsData.LogSizeLimitBytes = op.logSizeLimitBytes
-		stageVerticaLogsData.LogAgeHours = op.logAgeHours
+		stageVerticaLogsData.LogAgeMaxHours = op.logAgeMaxHours
+		stageVerticaLogsData.LogAgeMinHours = op.logAgeMinHours
 
 		dataBytes, err := json.Marshal(stageVerticaLogsData)
 		if err != nil {

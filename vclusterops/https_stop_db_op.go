@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -22,25 +22,30 @@ import (
 	"strconv"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type httpsStopDBOp struct {
 	opBase
 	opHTTPSBase
+	sandbox       string
+	mainCluster   bool
 	RequestParams map[string]string
+	isEon         bool
 }
 
-func makeHTTPSStopDBOp(logger vlog.Printer, useHTTPPassword bool, userName string,
-	httpsPassword *string, timeout *int) (httpsStopDBOp, error) {
+func makeHTTPSStopDBOp(useHTTPPassword bool, userName string,
+	httpsPassword *string, timeout *int, sandbox string, mainCluster, isEon bool) (httpsStopDBOp, error) {
 	op := httpsStopDBOp{}
 	op.name = "HTTPSStopDBOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Stop database"
 	op.useHTTPPassword = useHTTPPassword
+	op.sandbox = sandbox
+	op.mainCluster = mainCluster
+	op.isEon = isEon
 
 	// set the query params, "timeout" is optional
 	op.RequestParams = make(map[string]string)
-	if timeout != nil {
+	if timeout != nil && *timeout != 0 {
 		op.RequestParams["timeout"] = strconv.Itoa(*timeout)
 	}
 
@@ -72,11 +77,37 @@ func (op *httpsStopDBOp) setupClusterHTTPRequest(hosts []string) error {
 }
 
 func (op *httpsStopDBOp) prepare(execContext *opEngineExecContext) error {
-	if len(execContext.upHosts) == 0 {
+	// Stop db cases:
+	// case 1: stop db on a sandbox -- send stop db request to one UP host of the sandbox.
+	// case 2: stop db on the main cluster -- send stop db request to on UP host of the main cluster.
+	// case 3: stop db on every host -- send stop db request to one UP host of the given sandbox and to one UP host of the main cluster.
+	if len(execContext.upHostsToSandboxes) == 0 {
 		return fmt.Errorf(`[%s] Cannot find any up hosts in OpEngineExecContext`, op.name)
 	}
-	// use first up host to execute https post request
-	hosts := []string{execContext.upHosts[0]}
+	sandboxOnly := false
+	var mainHost string
+	var hosts []string
+	for h, sb := range execContext.upHostsToSandboxes {
+		if sb == op.sandbox && sb != "" {
+			// stop db only on sandbox
+			hosts = []string{h}
+			sandboxOnly = true
+			break
+		}
+		if sb == "" {
+			mainHost = h
+		} else {
+			hosts = append(hosts, h)
+		}
+	}
+	// Main cluster should run the command after sandboxes
+	if !sandboxOnly && op.sandbox == "" {
+		hosts = append(hosts, mainHost)
+	}
+	// Stop db on Main cluster only
+	if op.mainCluster {
+		hosts = []string{mainHost}
+	}
 	execContext.dispatcher.setup(hosts)
 
 	return op.setupClusterHTTPRequest(hosts)
@@ -97,6 +128,11 @@ func (op *httpsStopDBOp) processResult(_ *opEngineExecContext) error {
 	for host, result := range op.clusterHTTPRequest.ResultCollection {
 		op.logResponse(host, result)
 
+		// EOF is expected in DB shutdown: we expect the Server HTTPS service to go down quickly
+		// and the Server HTTPS service does not guarantee that the response being sent back to the client before it closes
+		if result.isEOF() {
+			continue
+		}
 		if !result.isPassing() {
 			allErrs = errors.Join(allErrs, result.err)
 			continue
@@ -105,7 +141,8 @@ func (op *httpsStopDBOp) processResult(_ *opEngineExecContext) error {
 		// decode the json-format response
 		// The successful response object will be a dictionary:
 		// 1. shutdown without drain
-		// {"detail": "Shutdown: moveout complete"}
+		//    1.1 enterprise DB {"detail": "Shutdown: moveout complete"}
+		//    1.2 eon DB {"detail": "Shutdown: sync complete"}
 		// 2. shutdown with drain
 		// {"detail": "Set subcluster (default_subcluster) to draining state\n
 		//  Waited for 1 nodes to drain\n
@@ -117,7 +154,6 @@ func (op *httpsStopDBOp) processResult(_ *opEngineExecContext) error {
 			allErrs = errors.Join(allErrs, err)
 			continue
 		}
-
 		if _, ok := op.RequestParams["timeout"]; ok {
 			if re.MatchString(response["details"]) {
 				err = fmt.Errorf(`[%s] response detail should like 'Set subcluster to draining state ...' but got '%s'`,
@@ -125,13 +161,19 @@ func (op *httpsStopDBOp) processResult(_ *opEngineExecContext) error {
 				allErrs = errors.Join(allErrs, err)
 			}
 		} else {
-			if response["detail"] != "Shutdown: moveout complete" {
-				err = fmt.Errorf(`[%s] response detail should be 'Shutdown: moveout complete' but got '%s'`, op.name, response["detail"])
+			// If the timeout is set to 0, we will not use a draining shutdown.
+			// A timeout of 0 indicates that eonDB is being used, so the response should be "Shutdown: sync complete".
+			// Otherwise, the response should be "Shutdown: moveout complete".
+			expectedDetail := "Shutdown: moveout complete"
+			if op.isEon {
+				expectedDetail = "Shutdown: sync complete"
+			}
+			if response["detail"] != expectedDetail {
+				err = fmt.Errorf(`[%s] response detail should be '%s' but got '%s'`, op.name, expectedDetail, response["detail"])
 				allErrs = errors.Join(allErrs, err)
 			}
 		}
 	}
-
 	return allErrs
 }
 

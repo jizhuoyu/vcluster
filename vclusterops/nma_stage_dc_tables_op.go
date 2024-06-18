@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -18,8 +18,6 @@ package vclusterops
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type nmaStageDCTablesOp struct {
@@ -34,7 +32,7 @@ type stageDCTablesResponseData struct {
 	Name string `json:"name"`
 }
 
-func makeNMAStageDCTablesOp(logger vlog.Printer,
+func makeNMAStageDCTablesOp(
 	id string,
 	hosts []string,
 	hostNodeNameMap map[string]string,
@@ -42,7 +40,7 @@ func makeNMAStageDCTablesOp(logger vlog.Printer,
 	// base members
 	op := nmaStageDCTablesOp{}
 	op.name = "NMAStageDCTablesOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Stage DC tables"
 	op.hosts = hosts
 
 	// scrutinize members

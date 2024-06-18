@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type httpsCreateNodeOp struct {
@@ -29,12 +28,12 @@ type httpsCreateNodeOp struct {
 	RequestParams map[string]string
 }
 
-func makeHTTPSCreateNodeOp(logger vlog.Printer, newNodeHosts []string, bootstrapHost []string,
+func makeHTTPSCreateNodeOp(newNodeHosts []string, bootstrapHost []string,
 	useHTTPPassword bool, userName string, httpsPassword *string,
 	vdb *VCoordinationDatabase, scName string) (httpsCreateNodeOp, error) {
 	op := httpsCreateNodeOp{}
 	op.name = "HTTPSCreateNodeOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Create node in catalog"
 	op.hosts = bootstrapHost
 	op.RequestParams = make(map[string]string)
 	// HTTPS create node endpoint requires passing everything before node name

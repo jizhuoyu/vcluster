@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -21,20 +21,21 @@ import (
 	"strconv"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type httpsSyncCatalogOp struct {
 	opBase
 	opHTTPSBase
+	cmdType CmdType
 }
 
-func makeHTTPSSyncCatalogOp(logger vlog.Printer, hosts []string, useHTTPPassword bool,
-	userName string, httpsPassword *string) (httpsSyncCatalogOp, error) {
+func makeHTTPSSyncCatalogOp(hosts []string, useHTTPPassword bool,
+	userName string, httpsPassword *string, cmdType CmdType) (httpsSyncCatalogOp, error) {
 	op := httpsSyncCatalogOp{}
 	op.name = "HTTPSSyncCatalogOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Synchronize catalog with communal storage"
 	op.hosts = hosts
+	op.cmdType = cmdType
 	op.useHTTPPassword = useHTTPPassword
 
 	err := util.ValidateUsernameAndPassword(op.name, useHTTPPassword, userName)
@@ -47,9 +48,9 @@ func makeHTTPSSyncCatalogOp(logger vlog.Printer, hosts []string, useHTTPPassword
 	return op, nil
 }
 
-func makeHTTPSSyncCatalogOpWithoutHosts(logger vlog.Printer, useHTTPPassword bool,
-	userName string, httpsPassword *string) (httpsSyncCatalogOp, error) {
-	return makeHTTPSSyncCatalogOp(logger, nil, useHTTPPassword, userName, httpsPassword)
+func makeHTTPSSyncCatalogOpWithoutHosts(useHTTPPassword bool,
+	userName string, httpsPassword *string, cmdType CmdType) (httpsSyncCatalogOp, error) {
+	return makeHTTPSSyncCatalogOp(nil, useHTTPPassword, userName, httpsPassword, cmdType)
 }
 
 func (op *httpsSyncCatalogOp) setupClusterHTTPRequest(hosts []string) error {
@@ -72,11 +73,20 @@ func (op *httpsSyncCatalogOp) setupClusterHTTPRequest(hosts []string) error {
 func (op *httpsSyncCatalogOp) prepare(execContext *opEngineExecContext) error {
 	// If no hosts passed in, we will find the hosts from execute-context
 	if len(op.hosts) == 0 {
-		if len(execContext.upHosts) == 0 {
-			return fmt.Errorf(`[%s] Cannot find any up hosts in OpEngineExecContext`, op.name)
+		if op.cmdType == StopSCSyncCat {
+			// execContext.nodesInfo stores the information of UP nodes in target subcluster
+			if len(execContext.nodesInfo) == 0 {
+				return fmt.Errorf(`[%s] Cannot find any node information of target subcluster in OpEngineExecContext`, op.name)
+			}
+			// use first up host in subcluster to execute https post request
+			op.hosts = []string{execContext.nodesInfo[0].Address}
+		} else {
+			if len(execContext.upHosts) == 0 {
+				return fmt.Errorf(`[%s] Cannot find any up hosts in OpEngineExecContext`, op.name)
+			}
+			// use first up host to execute https post request
+			op.hosts = []string{execContext.upHosts[0]}
 		}
-		// use first up host to execute https post request
-		op.hosts = []string{execContext.upHosts[0]}
 	}
 	execContext.dispatcher.setup(op.hosts)
 
@@ -110,10 +120,12 @@ func (op *httpsSyncCatalogOp) processResult(_ *opEngineExecContext) error {
 			if !ok {
 				err = fmt.Errorf(`[%s] response does not contain field "new_truncation_version"`, op.name)
 				allErrs = errors.Join(allErrs, err)
+				continue
 			}
 			op.logger.PrintInfo(`[%s] the_latest_truncation_catalog_version: %s"`, op.name, version)
-		} else {
-			allErrs = errors.Join(allErrs, result.err)
+
+			// good response from one node is enough for us
+			return nil
 		}
 	}
 	return allErrs

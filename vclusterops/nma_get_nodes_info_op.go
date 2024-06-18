@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -17,8 +17,6 @@ package vclusterops
 
 import (
 	"errors"
-
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 // nmaGetNodesInfoOp get nodes info from the NMA /v1/nodes endpoint.
@@ -31,13 +29,13 @@ type nmaGetNodesInfoOp struct {
 	vdb                  *VCoordinationDatabase
 }
 
-func makeNMAGetNodesInfoOp(logger vlog.Printer, hosts []string,
+func makeNMAGetNodesInfoOp(hosts []string,
 	dbName, catalogPrefix string,
 	ignoreInternalErrors bool,
 	vdb *VCoordinationDatabase) nmaGetNodesInfoOp {
 	op := nmaGetNodesInfoOp{}
 	op.name = "NMAGetNodesInfoOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Collect nodes information"
 	op.hosts = hosts
 	op.dbName = dbName
 	op.catalogPrefix = catalogPrefix

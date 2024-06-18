@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type httpsReloadSpreadOp struct {
@@ -28,12 +27,12 @@ type httpsReloadSpreadOp struct {
 	opHTTPSBase
 }
 
-func makeHTTPSReloadSpreadOpWithInitiator(logger vlog.Printer, initHosts []string,
+func makeHTTPSReloadSpreadOpWithInitiator(initHosts []string,
 	useHTTPPassword bool,
 	userName string, httpsPassword *string) (httpsReloadSpreadOp, error) {
 	op := httpsReloadSpreadOp{}
 	op.name = "HTTPSReloadSpreadOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Reload spread"
 	op.hosts = initHosts
 	op.useHTTPPassword = useHTTPPassword
 
@@ -46,9 +45,9 @@ func makeHTTPSReloadSpreadOpWithInitiator(logger vlog.Printer, initHosts []strin
 	return op, nil
 }
 
-func makeHTTPSReloadSpreadOp(logger vlog.Printer, useHTTPPassword bool,
+func makeHTTPSReloadSpreadOp(useHTTPPassword bool,
 	userName string, httpsPassword *string) (httpsReloadSpreadOp, error) {
-	return makeHTTPSReloadSpreadOpWithInitiator(logger, nil, useHTTPPassword, userName, httpsPassword)
+	return makeHTTPSReloadSpreadOpWithInitiator(nil, useHTTPPassword, userName, httpsPassword)
 }
 
 func (op *httpsReloadSpreadOp) setupClusterHTTPRequest(hosts []string) error {

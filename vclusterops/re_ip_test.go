@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -22,7 +22,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vertica/vcluster/vclusterops/vlog"
-	"github.com/vertica/vcluster/vclusterops/vstruct"
 )
 
 func TestReIPOptions(t *testing.T) {
@@ -30,12 +29,12 @@ func TestReIPOptions(t *testing.T) {
 	err := opt.validateAnalyzeOptions(vlog.Printer{})
 	assert.Error(t, err)
 
-	*opt.DBName = "test_db"
+	opt.DBName = "test_db"
 	opt.RawHosts = []string{"192.168.1.101", "192.168.1.102"}
 	err = opt.validateAnalyzeOptions(vlog.Printer{})
 	assert.ErrorContains(t, err, "must specify an absolute catalog path")
 
-	*opt.CatalogPrefix = "/data"
+	opt.CatalogPrefix = "/data"
 	err = opt.validateAnalyzeOptions(vlog.Printer{})
 	assert.ErrorContains(t, err, "the re-ip list is not provided")
 
@@ -52,7 +51,7 @@ func TestReadReIPFile(t *testing.T) {
 	currentDir, _ := os.Getwd()
 
 	// ipv4 positive
-	opt.Ipv6 = vstruct.False
+	opt.IPv6 = false
 	err := opt.ReadReIPFile(currentDir + "/test_data/re_ip_v4.json")
 	assert.NoError(t, err)
 
@@ -61,7 +60,7 @@ func TestReadReIPFile(t *testing.T) {
 	assert.ErrorContains(t, err, "192.168.1.10a in the re-ip file is not a valid IPv4 address")
 
 	// ipv6
-	opt.Ipv6 = vstruct.True
+	opt.IPv6 = true
 	err = opt.ReadReIPFile(currentDir + "/test_data/re_ip_v6.json")
 	assert.NoError(t, err)
 

@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type httpsAddSubclusterOp struct {
@@ -33,12 +32,12 @@ type httpsAddSubclusterOp struct {
 	ctlSetSize         int
 }
 
-func makeHTTPSAddSubclusterOp(logger vlog.Printer, useHTTPPassword bool, userName string, httpsPassword *string,
+func makeHTTPSAddSubclusterOp(useHTTPPassword bool, userName string, httpsPassword *string,
 	scName string, isPrimary bool, ctlSetSize int) (httpsAddSubclusterOp, error) {
 	op := httpsAddSubclusterOp{}
 	op.name = "HTTPSAddSubclusterOp"
+	op.description = "Add subcluster to catalog"
 	op.scName = scName
-	op.logger = logger.WithName(op.name)
 	op.isSecondary = !isPrimary
 	op.ctlSetSize = ctlSetSize
 

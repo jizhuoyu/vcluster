@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -73,7 +74,7 @@ type responseBodyDownloader struct {
 }
 
 const (
-	certPathBase          = "/opt/vertica/config/https_certs"
+	CertPathBase          = "/opt/vertica/config/https_certs"
 	nmaPort               = 5554
 	httpsPort             = 8443
 	defaultRequestTimeout = 300 // seconds
@@ -134,6 +135,8 @@ func (adapter *httpAdapter) sendRequest(request *hostHTTPRequest, resultChannel 
 		resultChannel <- adapter.makeExceptionResult(err)
 		return
 	}
+	// close the connection after sending the request (for clients)
+	req.Close = true
 
 	// set username and password
 	// which is only used for HTTPS endpoints
@@ -146,7 +149,11 @@ func (adapter *httpAdapter) sendRequest(request *hostHTTPRequest, resultChannel 
 	if err != nil {
 		err = fmt.Errorf("fail to send request %v on host %s, details %w",
 			request.Endpoint, adapter.host, err)
-		resultChannel <- adapter.makeExceptionResult(err)
+		if errors.Is(err, io.EOF) {
+			resultChannel <- adapter.makeEOFResult(err)
+		} else {
+			resultChannel <- adapter.makeExceptionResult(err)
+		}
 		return
 	}
 	defer resp.Body.Close()
@@ -245,6 +252,16 @@ func (adapter *httpAdapter) makeFailResult(header http.Header, respBody string, 
 	}
 }
 
+// makeEOFResult is a factory method for hostHTTPSResult when an EOF response
+// is received from a REST endpoint.
+func (adapter *httpAdapter) makeEOFResult(err error) hostHTTPResult {
+	return hostHTTPResult{
+		host:   adapter.host,
+		status: EOF,
+		err:    err,
+	}
+}
+
 // extractErrorFromResponse is called when we get a failed response from a REST
 // call. We will look at the headers and response body to decide what error
 // object to create.
@@ -312,9 +329,11 @@ func (adapter *httpAdapter) buildCertsFromMemory(key, cert, caCert string) (tls.
 	}
 
 	caCertPool := x509.NewCertPool()
-	ok := caCertPool.AppendCertsFromPEM([]byte(caCert))
-	if !ok {
-		return certificate, nil, fmt.Errorf("fail to load HTTPS CA certificates")
+	if caCert != "" {
+		ok := caCertPool.AppendCertsFromPEM([]byte(caCert))
+		if !ok {
+			return certificate, nil, fmt.Errorf("fail to load HTTPS CA certificates")
+		}
 	}
 
 	return certificate, caCertPool, nil
@@ -397,19 +416,23 @@ func getCertFilePaths() (certPaths certificatePaths, err error) {
 		return certPaths, err
 	}
 
-	certPaths.certFile = path.Join(certPathBase, username+".pem")
+	fixWay := "DBAdmin user can use the --generate-https-certs-only option of install_vertica to regenerate the default certificate bundle"
+	certPaths.certFile = path.Join(CertPathBase, username+".pem")
 	if !util.CheckPathExist(certPaths.certFile) {
-		return certPaths, fmt.Errorf("cert file path does not exist")
+		return certPaths, fmt.Errorf("cert file %q does not exist. "+
+			"Please verify that your cert file is in the correct location. %s", certPaths.certFile, fixWay)
 	}
 
-	certPaths.keyFile = path.Join(certPathBase, username+".key")
+	certPaths.keyFile = path.Join(CertPathBase, username+".key")
 	if !util.CheckPathExist(certPaths.keyFile) {
-		return certPaths, fmt.Errorf("key file path does not exist")
+		return certPaths, fmt.Errorf("key file %q does not exist. "+
+			"Please verify that your key file is in the correct location. %s", certPaths.keyFile, fixWay)
 	}
 
-	certPaths.caFile = path.Join(certPathBase, "rootca.pem")
+	certPaths.caFile = path.Join(CertPathBase, "rootca.pem")
 	if !util.CheckPathExist(certPaths.caFile) {
-		return certPaths, fmt.Errorf("ca file path does not exist")
+		return certPaths, fmt.Errorf("ca file %q does not exist. "+
+			"Please verify that your ca file is in the correct location. %s", certPaths.caFile, fixWay)
 	}
 
 	return certPaths, nil

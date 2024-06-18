@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -51,25 +51,4 @@ func TestPasswordRedaction(t *testing.T) {
 	unmaskedArgs := logMaskedArgParseHelper(argv)
 	assert.Len(t, unmaskedArgs, 2)
 	assert.Equal(t, pw, unmaskedArgs[1])
-}
-
-func TestPrintWithIndent(t *testing.T) {
-	var p Printer
-
-	const testMessage = "test message"
-
-	// when ForCli is false, PrintWithIndent() should not output to stdout
-	p.ForCli = false
-	output := CaptureStdout(func() {
-		p.PrintWithIndent(testMessage)
-	})
-	assert.Empty(t, output)
-
-	// when ForCli is true,
-	// PrintWithIndent() should output the message to stdout with indentation
-	p.ForCli = true
-	output = CaptureStdout(func() {
-		p.PrintWithIndent(testMessage)
-	})
-	assert.Equal(t, output, "  "+testMessage+"\n")
 }

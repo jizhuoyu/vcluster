@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -191,5 +191,25 @@ var (
 		path.Join(errorEndpointsPrefix, "non-absolute-path-error"),
 		"Target path is not an absolute path",
 		http.StatusBadRequest,
+	)
+	AuthenticationError = newProblemID(
+		path.Join(errorEndpointsPrefix, "unauthorized-request"),
+		"Unauthorized-request",
+		http.StatusUnauthorized,
+	)
+	CatalogPathNotExistError = newProblemID(
+		path.Join(errorEndpointsPrefix, "catalog-path-not-exist-error"),
+		"Target path does not exist",
+		http.StatusBadRequest,
+	)
+	CECatalogContentDirEmptyError = newProblemID(
+		path.Join(errorEndpointsPrefix, "catalog-content-dir-empty-error"),
+		"Target directory is empty",
+		http.StatusInternalServerError,
+	)
+	CECatalogContentDirNotExistError = newProblemID(
+		path.Join(errorEndpointsPrefix, "catalog-content-dir-not-exist-error"),
+		"Target directory does not exist",
+		http.StatusInternalServerError,
 	)
 )

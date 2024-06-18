@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -15,7 +15,10 @@
 
 package vclusterops
 
-import "github.com/vertica/vcluster/vclusterops/vlog"
+import (
+	"github.com/theckman/yacspin"
+	"github.com/vertica/vcluster/vclusterops/vlog"
+)
 
 type requestDispatcher struct {
 	opBase
@@ -54,7 +57,7 @@ func (dispatcher *requestDispatcher) setupForDownload(hosts []string,
 	}
 }
 
-func (dispatcher *requestDispatcher) sendRequest(httpRequest *clusterHTTPRequest) error {
+func (dispatcher *requestDispatcher) sendRequest(httpRequest *clusterHTTPRequest, spinner *yacspin.Spinner) error {
 	dispatcher.logger.Info("HTTP request dispatcher's sendRequest is called")
-	return dispatcher.pool.sendRequest(httpRequest)
+	return dispatcher.pool.sendRequest(httpRequest, spinner)
 }

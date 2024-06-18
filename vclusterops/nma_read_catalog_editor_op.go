@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/vertica/vcluster/vclusterops/vlog"
+	"github.com/vertica/vcluster/rfc7807"
 	"golang.org/x/exp/maps"
 )
 
@@ -29,26 +29,39 @@ type nmaReadCatalogEditorOp struct {
 	initiator      []string // used when creating new nodes
 	vdb            *VCoordinationDatabase
 	catalogPathMap map[string]string
+
+	firstStartAfterRevive bool // used for start_db only
 }
 
 // makeNMAReadCatalogEditorOpWithInitiator creates an op to read catalog editor info.
 // Initiator is needed when creating new nodes
 func makeNMAReadCatalogEditorOpWithInitiator(
-	logger vlog.Printer,
 	initiator []string,
 	vdb *VCoordinationDatabase,
 ) (nmaReadCatalogEditorOp, error) {
 	op := nmaReadCatalogEditorOp{}
 	op.name = "NMAReadCatalogEditorOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Read catalog"
 	op.initiator = initiator
 	op.vdb = vdb
 	return op, nil
 }
 
 // makeNMAReadCatalogEditorOp creates an op to read catalog editor info.
-func makeNMAReadCatalogEditorOp(logger vlog.Printer, vdb *VCoordinationDatabase) (nmaReadCatalogEditorOp, error) {
-	return makeNMAReadCatalogEditorOpWithInitiator(logger, []string{}, vdb)
+func makeNMAReadCatalogEditorOp(vdb *VCoordinationDatabase) (nmaReadCatalogEditorOp, error) {
+	return makeNMAReadCatalogEditorOpWithInitiator([]string{}, vdb)
+}
+
+func makeNMAReadCatalogEditorOpForStartDB(
+	vdb *VCoordinationDatabase,
+	firstStartAfterRevive bool) (nmaReadCatalogEditorOp, error) {
+	op, err := makeNMAReadCatalogEditorOpWithInitiator([]string{}, vdb)
+	if err != nil {
+		return op, err
+	}
+
+	op.firstStartAfterRevive = firstStartAfterRevive
+	return op, err
 }
 
 func (op *nmaReadCatalogEditorOp) setupClusterHTTPRequest(hosts []string) error {
@@ -171,6 +184,7 @@ func (op *nmaReadCatalogEditorOp) processResult(execContext *opEngineExecContext
 	var hostsWithLatestCatalog []string
 	var maxGlobalVersion int64
 	var latestNmaVDB nmaVDatabase
+	var bestHost string
 	for host, result := range op.clusterHTTPRequest.ResultCollection {
 		op.logResponse(host, result)
 
@@ -210,10 +224,24 @@ func (op *nmaReadCatalogEditorOp) processResult(execContext *opEngineExecContext
 				maxGlobalVersion = globalVersion
 				// save the latest NMAVDatabase to execContext
 				latestNmaVDB = nmaVDB
+				bestHost = host
 			} else if globalVersion == maxGlobalVersion {
 				hostsWithLatestCatalog = append(hostsWithLatestCatalog, host)
 			}
 		} else {
+			// if this is not the first time of start_db after revive_db,
+			// we ignore the error if the catalog directory is empty, because
+			// - we may send request to a secondary node right after revive
+			// - users may delete the catalog files
+			if !op.firstStartAfterRevive {
+				rfcError := &rfc7807.VProblem{}
+				if ok := errors.As(result.err, &rfcError); ok &&
+					(rfcError.ProblemID == rfc7807.CECatalogContentDirEmptyError ||
+						rfcError.ProblemID == rfc7807.CECatalogContentDirNotExistError) {
+					continue
+				}
+			}
+
 			allErrs = errors.Join(allErrs, result.err)
 		}
 	}
@@ -228,6 +256,6 @@ func (op *nmaReadCatalogEditorOp) processResult(execContext *opEngineExecContext
 	execContext.hostsWithLatestCatalog = hostsWithLatestCatalog
 	// save the latest nmaVDB to execContext
 	execContext.nmaVDatabase = latestNmaVDB
-
+	op.logger.PrintInfo("reporting results as obtained from the host [%s] ", bestHost)
 	return allErrs
 }

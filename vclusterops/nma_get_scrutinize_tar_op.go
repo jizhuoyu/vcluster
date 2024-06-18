@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -21,7 +21,6 @@ import (
 	"os"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type nmaGetScrutinizeTarOp struct {
@@ -29,14 +28,14 @@ type nmaGetScrutinizeTarOp struct {
 	useInitiator bool
 }
 
-func makeNMAGetScrutinizeTarOp(logger vlog.Printer,
+func makeNMAGetScrutinizeTarOp(
 	id, batch string,
 	hosts []string,
 	hostNodeNameMap map[string]string) (nmaGetScrutinizeTarOp, error) {
 	// base members
 	op := nmaGetScrutinizeTarOp{}
 	op.name = "NMAGetScrutinizeTarOp"
-	op.logger = logger.WithName(op.name)
+	op.description = fmt.Sprintf("Create and retrieve tar files for batch %s", batch)
 	op.hosts = hosts
 
 	// scrutinize members
@@ -71,7 +70,7 @@ func (op *nmaGetScrutinizeTarOp) createOutputDir() error {
 	if err := os.MkdirAll(outputDir, OwnerReadWriteExecute); err != nil {
 		return err
 	}
-	stagingDirPathAccess := util.CanWriteAccessDir(outputDir)
+	stagingDirPathAccess := util.CanWriteAccessPath(outputDir)
 	if stagingDirPathAccess == util.FileNotExist {
 		return fmt.Errorf("opening scrutinize output directory failed: '%s'", outputDir)
 	}
@@ -89,15 +88,15 @@ func (op *nmaGetScrutinizeTarOp) prepare(execContext *opEngineExecContext) error
 			op.skipExecute = true
 			return nil
 		}
-		host := getInitiator(execContext.upHosts)
-		op.hosts = []string{host}
 
-		// the initiator host should have been in the original host list, and already
-		// validated, but let's not assume
-		err := validateHostMaps(op.hosts, op.hostNodeNameMap)
-		if err != nil {
-			return err
+		host := getInitiatorFromUpHosts(execContext.upHosts, op.hosts)
+		if host == "" {
+			op.logger.PrintWarning("no up hosts among user specified hosts to collect system tables from, skipping the operation")
+			op.skipExecute = true
+			return nil
 		}
+
+		op.hosts = []string{host}
 	}
 
 	hostToFilePathsMap := map[string]string{}

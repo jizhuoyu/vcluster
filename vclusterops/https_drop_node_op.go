@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -17,9 +17,9 @@ package vclusterops
 
 import (
 	"errors"
+	"strconv"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type httpsDropNodeOp struct {
@@ -29,15 +29,17 @@ type httpsDropNodeOp struct {
 	RequestParams map[string]string
 }
 
-func makeHTTPSDropNodeOp(logger vlog.Printer, vnode string,
+// makeHTTPSDropNodeOp is a constructor for httpsDropNodeOp. The cascade option
+// should be true if an Eon deployment and the node we are dropping is down.
+func makeHTTPSDropNodeOp(vnode string,
 	initiatorHost []string,
 	useHTTPPassword bool,
 	userName string,
 	httpsPassword *string,
-	isEon bool) (httpsDropNodeOp, error) {
+	cascade bool) (httpsDropNodeOp, error) {
 	op := httpsDropNodeOp{}
 	op.name = "HTTPSDropNodeOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Drop node in catalog"
 	op.hosts = initiatorHost
 	op.targetHost = vnode
 	op.useHTTPPassword = useHTTPPassword
@@ -48,11 +50,7 @@ func makeHTTPSDropNodeOp(logger vlog.Printer, vnode string,
 	op.userName = userName
 	op.httpsPassword = httpsPassword
 	op.RequestParams = make(map[string]string)
-	if isEon {
-		op.RequestParams["cascade"] = "true"
-		return op, nil
-	}
-	op.RequestParams["cascade"] = "false"
+	op.RequestParams["cascade"] = strconv.FormatBool(cascade)
 	return op, nil
 }
 

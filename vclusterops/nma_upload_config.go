@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type nmaUploadConfigOp struct {
@@ -48,7 +47,6 @@ type uploadConfigRequestData struct {
 // To add nodes to the DB, use the bootstrapHost value for sourceConfigHost, a list of newly added nodes
 // for newNodeHosts and provide a nil value for hosts.
 func makeNMAUploadConfigOp(
-	logger vlog.Printer,
 	opName string,
 	sourceConfigHost []string, // source host for transferring configuration files, specifically, it is
 	// 1. the bootstrap host when creating the database
@@ -60,8 +58,12 @@ func makeNMAUploadConfigOp(
 ) nmaUploadConfigOp {
 	op := nmaUploadConfigOp{}
 	op.name = opName
-	op.logger = logger.WithName(op.name)
 	op.endpoint = endpoint
+	if op.endpoint == verticaConf {
+		op.description = "Send contents of vertica.conf to nodes"
+	} else if op.endpoint == spreadConf {
+		op.description = "Send contents of spread.conf to nodes"
+	}
 	op.fileContent = fileContent
 	op.catalogPathMap = make(map[string]string)
 	op.sourceConfigHost = sourceConfigHost
@@ -105,7 +107,7 @@ func (op *nmaUploadConfigOp) setupClusterHTTPRequest(hosts []string) error {
 func (op *nmaUploadConfigOp) prepare(execContext *opEngineExecContext) error {
 	op.catalogPathMap = make(map[string]string)
 	// If any node's info is available, we set catalogPathMap from node's info.
-	// This case is used for restarting nodes operation.
+	// This case is used for starting nodes operation.
 	// Otherwise, we set catalogPathMap from the catalog editor (start_db, create_db).
 	if op.vdb == nil || len(op.vdb.HostNodeMap) == 0 {
 		nmaVDB := execContext.nmaVDatabase

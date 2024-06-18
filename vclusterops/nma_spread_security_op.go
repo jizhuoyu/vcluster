@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -46,9 +46,10 @@ func makeNMASpreadSecurityOp(
 ) nmaSpreadSecurityOp {
 	return nmaSpreadSecurityOp{
 		opBase: opBase{
-			logger: logger.WithName("NMASpreadSecurityOp"),
-			name:   "NMASpreadSecurityOp",
-			hosts:  nil, // We always set this at runtime from read catalog editor
+			logger:      logger.WithName("NMASpreadSecurityOp"),
+			name:        "NMASpreadSecurityOp",
+			description: "Set new spread encryption key",
+			hosts:       nil, // We always set this at runtime from read catalog editor
 		},
 		catalogPathMap: nil, // Set at runtime after reading the catalog editor
 		keyType:        keyType,

@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type httpsSpreadRemoveNodeOp struct {
@@ -29,11 +28,11 @@ type httpsSpreadRemoveNodeOp struct {
 	RequestParams map[string]string
 }
 
-func makeHTTPSSpreadRemoveNodeOp(logger vlog.Printer, hostsToRemove []string, initiatorHost []string, useHTTPPassword bool,
+func makeHTTPSSpreadRemoveNodeOp(hostsToRemove []string, initiatorHost []string, useHTTPPassword bool,
 	userName string, httpsPassword *string, hostNodeMap vHostNodeMap) (httpsSpreadRemoveNodeOp, error) {
 	op := httpsSpreadRemoveNodeOp{}
 	op.name = "HTTPSSpreadRemoveNodeOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Remove nodes in spread"
 	op.hosts = initiatorHost
 	op.useHTTPPassword = useHTTPPassword
 

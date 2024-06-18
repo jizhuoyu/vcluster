@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -17,8 +17,6 @@ package vclusterops
 
 import (
 	"fmt"
-
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 // nodes being down is not unusual for the purpose of this op.
@@ -30,11 +28,11 @@ type nmaGetHealthyNodesOp struct {
 	vdb *VCoordinationDatabase
 }
 
-func makeNMAGetHealthyNodesOp(logger vlog.Printer, hosts []string,
+func makeNMAGetHealthyNodesOp(hosts []string,
 	vdb *VCoordinationDatabase) nmaGetHealthyNodesOp {
 	op := nmaGetHealthyNodesOp{}
 	op.name = "NMAGetHealthyNodesOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Get healthy nodes"
 	op.hosts = hosts
 	op.vdb = vdb
 	return op

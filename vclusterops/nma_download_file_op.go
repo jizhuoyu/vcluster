@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -22,8 +22,14 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+)
 
-	"github.com/vertica/vcluster/vclusterops/vlog"
+type leaseCheckOption int
+
+const (
+	leaseCheckOnly leaseCheckOption = iota
+	skipLeaseCheck
+	normalLeaseCheck
 )
 
 const (
@@ -44,6 +50,7 @@ type nmaDownloadFileOp struct {
 	displayOnly        bool
 	ignoreClusterLease bool
 	forRevive          bool
+	leaseCheckOption   leaseCheckOption
 }
 
 type downloadFileRequestData struct {
@@ -83,11 +90,11 @@ func (e *ReviveDBNodeCountMismatchError) Error() string {
 		e.ReviveDBStep, e.FailureHost, e.NumOfNewNodes, e.NumOfOldNodes)
 }
 
-func makeNMADownloadFileOp(logger vlog.Printer, newNodes []string, sourceFilePath, destinationFilePath, catalogPath string,
+func makeNMADownloadFileOp(newNodes []string, sourceFilePath, destinationFilePath, catalogPath string,
 	configurationParameters map[string]string, vdb *VCoordinationDatabase) (nmaDownloadFileOp, error) {
 	op := nmaDownloadFileOp{}
 	op.name = "NMADownloadFileOp"
-	op.logger = logger.WithName(op.name)
+	op.description = fmt.Sprintf("Download %s", filepath.Base(sourceFilePath))
 	initiator := getInitiator(newNodes)
 	op.hosts = []string{initiator}
 	op.vdb = vdb
@@ -113,9 +120,9 @@ func makeNMADownloadFileOp(logger vlog.Printer, newNodes []string, sourceFilePat
 	return op, nil
 }
 
-func makeNMADownloadFileOpForRevive(logger vlog.Printer, newNodes []string, sourceFilePath, destinationFilePath, catalogPath string,
+func makeNMADownloadFileOpForRevive(newNodes []string, sourceFilePath, destinationFilePath, catalogPath string,
 	configurationParameters map[string]string, vdb *VCoordinationDatabase, displayOnly, ignoreClusterLease bool) (nmaDownloadFileOp, error) {
-	op, err := makeNMADownloadFileOp(logger, newNodes, sourceFilePath, destinationFilePath,
+	op, err := makeNMADownloadFileOp(newNodes, sourceFilePath, destinationFilePath,
 		catalogPath, configurationParameters, vdb)
 	if err != nil {
 		return op, err
@@ -123,6 +130,32 @@ func makeNMADownloadFileOpForRevive(logger vlog.Printer, newNodes []string, sour
 	op.displayOnly = displayOnly
 	op.ignoreClusterLease = ignoreClusterLease
 	op.forRevive = true
+	op.leaseCheckOption = normalLeaseCheck
+
+	return op, nil
+}
+
+func makeNMADownloadFileOpForRestore(newNodes []string, sourceFilePath, destinationFilePath, catalogPath string,
+	configurationParameters map[string]string, vdb *VCoordinationDatabase, displayOnly bool) (nmaDownloadFileOp, error) {
+	op, err := makeNMADownloadFileOpForRevive(newNodes, sourceFilePath, destinationFilePath,
+		catalogPath, configurationParameters, vdb, displayOnly, true)
+	if err != nil {
+		return op, err
+	}
+	op.leaseCheckOption = skipLeaseCheck
+
+	return op, nil
+}
+
+func makeNMADownloadFileOpForRestoreLeaseCheck(newNodes []string, sourceFilePath, destinationFilePath,
+	catalogPath string, configurationParameters map[string]string,
+	vdb *VCoordinationDatabase, ignoreClusterLease bool) (nmaDownloadFileOp, error) {
+	op, err := makeNMADownloadFileOpForRevive(newNodes, sourceFilePath, destinationFilePath,
+		catalogPath, configurationParameters, vdb, false, ignoreClusterLease)
+	if err != nil {
+		return op, err
+	}
+	op.leaseCheckOption = leaseCheckOnly
 
 	return op, nil
 }
@@ -214,10 +247,16 @@ func (op *nmaDownloadFileOp) processResult(execContext *opEngineExecContext) err
 			}
 
 			if op.forRevive {
-				err = op.clusterLeaseCheck(descFileContent.ClusterLeaseExpiration)
-				if err != nil {
-					allErrs = errors.Join(allErrs, err)
-					break
+				if op.leaseCheckOption != skipLeaseCheck {
+					err = op.clusterLeaseCheck(descFileContent.ClusterLeaseExpiration)
+					if err != nil {
+						allErrs = errors.Join(allErrs, err)
+						break
+					}
+				}
+
+				if op.leaseCheckOption == leaseCheckOnly {
+					return nil
 				}
 
 				if len(descFileContent.NodeList) != len(op.newNodes) {
@@ -289,7 +328,7 @@ func (op *nmaDownloadFileOp) buildVDBFromClusterConfig(descFileContent fileConte
 
 func (op *nmaDownloadFileOp) clusterLeaseCheck(clusterLeaseExpiration string) error {
 	if op.ignoreClusterLease {
-		op.logger.PrintWarning("Skipping cluster lease check\n")
+		op.logger.PrintWarning("Skipping cluster lease check")
 		return nil
 	}
 

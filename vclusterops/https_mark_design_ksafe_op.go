@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -21,7 +21,6 @@ import (
 	"strconv"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 const zeroSafeRspStr = "Marked design 0-safe"
@@ -35,7 +34,6 @@ type httpsMarkDesignKSafeOp struct {
 }
 
 func makeHTTPSMarkDesignKSafeOp(
-	logger vlog.Printer,
 	hosts []string,
 	useHTTPPassword bool,
 	userName string,
@@ -44,7 +42,7 @@ func makeHTTPSMarkDesignKSafeOp(
 ) (httpsMarkDesignKSafeOp, error) {
 	op := httpsMarkDesignKSafeOp{}
 	op.name = "HTTPSMarkDesignKsafeOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Set k-safety"
 	op.hosts = hosts
 	op.useHTTPPassword = useHTTPPassword
 

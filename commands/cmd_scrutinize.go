@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -18,15 +18,15 @@ package commands
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/spf13/cobra"
 	"github.com/vertica/vcluster/vclusterops"
-	"github.com/vertica/vcluster/vclusterops/util"
 	"github.com/vertica/vcluster/vclusterops/vlog"
 	"github.com/vertica/vertica-kubernetes/pkg/secrets"
 )
@@ -40,17 +40,20 @@ const (
 	nmaRootCAPathEnvVar = "NMA_ROOTCA_PATH"
 	nmaCertPathEnvVar   = "NMA_CERT_PATH"
 	nmaKeyPathEnvVar    = "NMA_KEY_PATH"
+
+	// Environment variable names storing name of secret that has the db password
+	passwordSecretNamespaceEnvVar = "PASSWORD_SECRET_NAMESPACE"
+	passwordSecretNameEnvVar      = "PASSWORD_SECRET_NAME"
 )
 
 const (
-	kubernetesPort  = "KUBERNETES_PORT"
 	databaseName    = "DATABASE_NAME"
 	catalogPathPref = "CATALOG_PATH"
 )
 
 // secretRetriever is an interface for retrieving secrets.
 type secretRetriever interface {
-	RetrieveSecret(logger vlog.Printer, namespace, secretName string) ([]byte, []byte, []byte, error)
+	RetrieveSecret(logger vlog.Printer, namespace, secretName string) (map[string][]byte, error)
 }
 
 // secretStoreRetrieverStruct is an implementation of secretRetriever. It
@@ -73,131 +76,196 @@ type CmdScrutinize struct {
 	sOptions             vclusterops.VScrutinizeOptions
 }
 
-func makeCmdScrutinize() *CmdScrutinize {
+func makeCmdScrutinize() *cobra.Command {
 	newCmd := &CmdScrutinize{}
-	newCmd.parser = flag.NewFlagSet("scrutinize", flag.ExitOnError)
-	newCmd.sOptions = vclusterops.VScrutinizOptionsFactory()
+	opt := vclusterops.VScrutinizeOptionsFactory()
+	newCmd.sOptions = opt
 	newCmd.secretStoreRetriever = secretStoreRetrieverStruct{}
-	// required flags
-	newCmd.sOptions.DBName = newCmd.parser.String("db-name", "", "The name of the database to run scrutinize.  May be omitted on k8s.")
 
-	newCmd.hostListStr = newCmd.parser.String("hosts", "", "Comma-separated host list")
+	cmd := makeBasicCobraCmd(
+		newCmd,
+		scrutinizeSubCmd,
+		"Scrutinize a database",
+		`This command runs scrutinize to collect diagnostic information about a
+database.
+		
+Vertica support might request that you run scrutinize when resolving a support
+case.
 
-	// optional flags
-	newCmd.sOptions.Password = newCmd.parser.String("password", "",
-		util.GetOptionalFlagMsg("Database password. Consider using in single quotes to avoid shell substitution."))
+If you use the --hosts option, scrutinize gathers diagnostics from only the
+specified hosts.
 
-	newCmd.sOptions.UserName = newCmd.parser.String("db-user", "",
-		util.GetOptionalFlagMsg("Database username. Consider using single quotes to avoid shell substitution."))
+The diagnostics are bundled together in a tar file and stored in 
+`+vclusterops.ScrutinizeOutputBasePath+`/VerticaScrutinize.<timestamp>.tar.
 
-	newCmd.sOptions.HonorUserInput = newCmd.parser.Bool("honor-user-input", false,
-		util.GetOptionalFlagMsg("Forcefully use the user's input instead of reading the options from "+vclusterops.ConfigFileName))
+Examples:
+  # Scrutinize all nodes in the database with config file
+  # option and password-based authentication
+  vcluster scrutinize --db-name test_db --db-user dbadmin \
+    --password testpassword --config /opt/vertica/config/vertica_cluster.yaml
+`,
+		[]string{dbNameFlag, hostsFlag, ipv6Flag, configFlag, catalogPathFlag, passwordFlag},
+	)
 
-	newCmd.sOptions.ConfigDirectory = newCmd.parser.String("config-directory", "",
-		util.GetOptionalFlagMsg("Directory where "+vclusterops.ConfigFileName+" is located"))
+	// local flags
+	newCmd.setLocalFlags(cmd)
 
-	newCmd.ipv6 = newCmd.parser.Bool("ipv6", false, util.GetOptionalFlagMsg("Scrutinize database with IPv6 hosts"))
-
-	return newCmd
+	return cmd
 }
 
-func (c *CmdScrutinize) CommandType() string {
-	return vclusterops.VScrutinizeTypeName
+// setLocalFlags will set the local flags the command has
+func (c *CmdScrutinize) setLocalFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(
+		&dbOptions.UserName,
+		"db-user",
+		"",
+		"Database username. Consider using single quotes "+
+			"to avoid shell substitution.",
+	)
+
+	cmd.Flags().StringVar(
+		&c.sOptions.TarballName,
+		"tarball-name",
+		"",
+		"Name of the generated tarball. If empty an auto-generated "+
+			"name is used following the pattern VerticaScrutinize.<timestamp>",
+	)
+	cmd.Flags().StringVar(
+		&c.sOptions.LogAgeOldestTime,
+		"log-age-oldest-time",
+		"",
+		"Timestamp of the maximum age of archived vertica log files "+
+			"to collect, formatted as "+vclusterops.ScrutinizeHelpTimeFormatDesc,
+	)
+	cmd.Flags().StringVar(
+		&c.sOptions.LogAgeNewestTime,
+		"log-age-newest-time",
+		"",
+		"Timestamp of the minimum age of archived vertica log files "+
+			"to collect, formatted as "+vclusterops.ScrutinizeHelpTimeFormatDesc,
+	)
+	cmd.Flags().IntVar(
+		&c.sOptions.LogAgeHours,
+		"log-age-hours",
+		vclusterops.ScrutinizeLogMaxAgeHoursDefault,
+		"Maximum age of archived vertica log files to collect "+
+			"in hours, default "+fmt.Sprint(vclusterops.ScrutinizeLogMaxAgeHoursDefault),
+	)
+	cmd.MarkFlagsMutuallyExclusive("log-age-hours", "log-age-oldest-time")
+	cmd.MarkFlagsMutuallyExclusive("log-age-hours", "log-age-newest-time")
+	cmd.Flags().BoolVar(
+		&c.sOptions.ExcludeContainers,
+		"exclude-containers",
+		false,
+		"Exclude information scaling with number of ros containers",
+	)
+	cmd.Flags().BoolVar(
+		&c.sOptions.ExcludeActiveQueries,
+		"exclude-active-queries",
+		false,
+		"Exclude information affected by currently running queries",
+	)
+	cmd.Flags().BoolVar(
+		&c.sOptions.IncludeRos,
+		"include-ros",
+		false,
+		"Include information describing ros containers",
+	)
+	cmd.Flags().BoolVar(
+		&c.sOptions.IncludeExternalTableDetails,
+		"include-external-table-details",
+		false,
+		"Include information describing external tables, "+
+			"which is expensive to gather",
+	)
+	cmd.Flags().BoolVar(
+		&c.sOptions.IncludeUDXDetails,
+		"include-udx-details",
+		false,
+		"Include information describing all UDX functions, "+
+			"which can be expensive to gather on Eon",
+	)
+	cmd.Flags().BoolVar(
+		&c.sOptions.SkipCollectLibs,
+		"skip-collect-libraries",
+		false,
+		"Skip gathering linked and catalog shared libraries",
+	)
 }
 
 func (c *CmdScrutinize) Parse(inputArgv []string, logger vlog.Printer) error {
-	logger.PrintInfo("Parsing scrutinize command input")
 	c.argv = inputArgv
-	err := c.ValidateParseMaskedArgv(c.CommandType(), logger)
-	if err != nil {
-		return err
-	}
-
+	logger.LogMaskedArgParse(c.argv)
 	// for some options, we do not want to use their default values,
 	// if they are not provided in cli,
 	// reset the value of those options to nil
-	if !util.IsOptionSet(c.parser, "password") {
-		c.sOptions.Password = nil
+	c.ResetUserInputOptions(&c.sOptions.DatabaseOptions)
+
+	// if the tarballName was provided in the cli, we check
+	// if it matches GRASP regex
+	if c.parser.Changed("tarball-name") {
+		c.validateTarballName(logger)
 	}
-	if !util.IsOptionSet(c.parser, "config-directory") {
-		c.sOptions.ConfigDirectory = nil
-	}
-	if !util.IsOptionSet(c.parser, "ipv6") {
-		c.CmdBase.ipv6 = nil
-	}
-	// just so generic parsing works - not relevant for functionality
-	if !util.IsOptionSet(c.parser, "eon-mode") {
-		c.CmdBase.isEon = nil
+	if c.sOptions.TarballName == "" {
+		// If the tarball name is empty, the final tarball
+		// name will be the auto-generated id
+		c.sOptions.TarballName = c.sOptions.ID
 	}
 
-	// parses host list and ipv6 - eon is irrelevant but handled
 	return c.validateParse(logger)
 }
 
 // all validations of the arguments should go in here
 func (c *CmdScrutinize) validateParse(logger vlog.Printer) error {
 	logger.Info("Called validateParse()")
-	return c.ValidateParseBaseOptions(&c.sOptions.DatabaseOptions)
+	if !c.usePassword() {
+		err := c.getCertFilesFromCertPaths(&c.sOptions.DatabaseOptions)
+		if err != nil {
+			return err
+		}
+	}
+
+	// parses host list and ipv6 - eon is irrelevant but handled
+	err := c.ValidateParseBaseOptions(&c.sOptions.DatabaseOptions)
+	if err != nil {
+		return err
+	}
+	return c.setDBPassword(&c.sOptions.DatabaseOptions)
 }
 
-func (c *CmdScrutinize) Analyze(logger vlog.Printer) error {
-	logger.Info("Called method Analyze()")
+func (c *CmdScrutinize) Run(vcc vclusterops.ClusterCommands) error {
+	vcc.LogInfo("Calling method Run()")
+
+	// Read the password from a secret
+	err := c.dbPassswdLookupFromSecretStore(vcc.GetLog())
+	if err != nil {
+		return err
+	}
 
 	// Read the NMA certs into the options struct
-	err := c.readNMACerts(logger)
+	err = c.readNMACerts(vcc.GetLog())
 	if err != nil {
 		return err
 	}
 
-	var allErrs error
-	port, found := os.LookupEnv(kubernetesPort)
-	if found && port != "" && *c.sOptions.HonorUserInput {
-		logger.Info(kubernetesPort, " is set, k8s environment detected", found)
-		dbName, found := os.LookupEnv(databaseName)
-		if !found || dbName == "" {
-			allErrs = errors.Join(allErrs, fmt.Errorf("unable to get database name from environment variable. "))
-		} else {
-			c.sOptions.DBName = &dbName
-			logger.Info("Setting database name from env as", "DBName", *c.sOptions.DBName)
-		}
-
-		catPrefix, found := os.LookupEnv(catalogPathPref)
-		if !found || catPrefix == "" {
-			allErrs = errors.Join(allErrs, fmt.Errorf("unable to get catalog path from environment variable. "))
-		} else {
-			c.sOptions.CatalogPrefix = &catPrefix
-			logger.Info("Setting catalog path from env as", "CatalogPrefix", *c.sOptions.CatalogPrefix)
-		}
-		if allErrs != nil {
-			return allErrs
-		}
-	}
-	return nil
-}
-
-func (c *CmdScrutinize) Run(vcc vclusterops.VClusterCommands) error {
-	vcc.Log.PrintInfo("Running scrutinize") // TODO remove when no longer needed for tests
-	vcc.Log.Info("Calling method Run()")
-
-	// get config from vertica_cluster.yaml (if exists)
-	config, err := c.sOptions.GetDBConfig(vcc)
+	// get extra options direct from env variables
+	err = c.readOptionsFromK8sEnv(vcc.GetLog())
 	if err != nil {
 		return err
 	}
-	c.sOptions.Config = config
 
 	err = vcc.VScrutinize(&c.sOptions)
 	if err != nil {
-		vcc.Log.Error(err, "scrutinize run failed")
+		vcc.LogError(err, "scrutinize run failed")
 		return err
 	}
-	vcc.Log.PrintInfo("Successfully completed scrutinize run for the database %s", *c.sOptions.DBName)
+	vcc.DisplayInfo("Successfully completed scrutinize run for the database %s", c.sOptions.DBName)
 	return err
 }
 
 // RetrieveSecret retrieves a secret from a secret store, such as Kubernetes or
 // GSM, and returns its data.
-func (k secretStoreRetrieverStruct) RetrieveSecret(logger vlog.Printer, namespace, secretName string) (ca, cert, key []byte, err error) {
+func (k secretStoreRetrieverStruct) RetrieveSecret(logger vlog.Printer, namespace, secretName string) (map[string][]byte, error) {
 	// We use MultiSourceSecretFetcher since it will use the correct client
 	// depending on the secret path reference of the secret name. This can
 	// handle reading clients from the k8s-apiserver using a k8s client, or from
@@ -206,15 +274,16 @@ func (k secretStoreRetrieverStruct) RetrieveSecret(logger vlog.Printer, namespac
 		Log: &logger,
 	}
 	ctx := context.Background()
-	var certData map[string][]byte
 	fetchName := types.NamespacedName{
 		Namespace: namespace,
 		Name:      secretName,
 	}
-	certData, err = fetcher.Fetch(ctx, fetchName)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to fetch secret: %w", err)
-	}
+	return fetcher.Fetch(ctx, fetchName)
+}
+
+// extractNMACerts extracts the ca, cert and key from a secret data and
+// set the options struct
+func (c *CmdScrutinize) extractNMACerts(certData map[string][]byte) (err error) {
 	const (
 		CACertName  = "ca.crt"
 		TLSCertName = "tls.crt"
@@ -222,17 +291,41 @@ func (k secretStoreRetrieverStruct) RetrieveSecret(logger vlog.Printer, namespac
 	)
 	caCertVal, exists := certData[CACertName]
 	if !exists {
-		return nil, nil, nil, fmt.Errorf("missing key %s in secret", CACertName)
+		return fmt.Errorf("missing key %s in secret", CACertName)
 	}
 	tlsCertVal, exists := certData[TLSCertName]
 	if !exists {
-		return nil, nil, nil, fmt.Errorf("missing key %s in secret", TLSCertName)
+		return fmt.Errorf("missing key %s in secret", TLSCertName)
 	}
 	tlsKeyVal, exists := certData[TLSKeyName]
 	if !exists {
-		return nil, nil, nil, fmt.Errorf("missing key %s in secret", TLSKeyName)
+		return fmt.Errorf("missing key %s in secret", TLSKeyName)
 	}
-	return caCertVal, tlsCertVal, tlsKeyVal, nil
+
+	if len(caCertVal) == 0 || len(tlsCertVal) == 0 || len(tlsKeyVal) == 0 {
+		return fmt.Errorf("failed to read CA, cert or key (sizes = %d/%d/%d)",
+			len(caCertVal), len(tlsCertVal), len(tlsKeyVal))
+	}
+
+	c.sOptions.CaCert = string(caCertVal)
+	c.sOptions.Cert = string(tlsCertVal)
+	c.sOptions.Key = string(tlsKeyVal)
+	return nil
+}
+
+// extractDBPassword extracts the password from a secret data and
+// set the options struct
+func (c *CmdScrutinize) extractDBPassword(pwdData map[string][]byte) (err error) {
+	const passwordKey = "password"
+	pwd, ok := pwdData[passwordKey]
+	if !ok {
+		return fmt.Errorf("password not found, secret must have a key with name %q", passwordKey)
+	}
+	if c.sOptions.Password == nil {
+		c.sOptions.Password = new(string)
+	}
+	*c.sOptions.Password = string(pwd)
+	return nil
 }
 
 func (c *CmdScrutinize) readNMACerts(logger vlog.Printer) error {
@@ -250,44 +343,59 @@ func (c *CmdScrutinize) readNMACerts(logger vlog.Printer) error {
 	return nil
 }
 
+// dbPassswdLookupFromSecretStore retrieves the db password directly from a secret store.
+func (c *CmdScrutinize) dbPassswdLookupFromSecretStore(logger vlog.Printer) error {
+	// no-op if we are not on k8s or the password has already
+	// been set through another method
+	if !isK8sEnvironment() || c.sOptions.Password != nil {
+		return nil
+	}
+
+	secret, err := lookupAndCheckSecretEnvVars(passwordSecretNameEnvVar, passwordSecretNamespaceEnvVar)
+	if secret == nil || err != nil {
+		if err == nil {
+			logger.Info("Password secret environment variables are not set. Password read will rely on the user input.")
+		}
+		return err
+	}
+
+	pwdData, err := c.secretStoreRetriever.RetrieveSecret(logger, secret.Namespace, secret.Name)
+	if err != nil {
+		return err
+	}
+	err = c.extractDBPassword(pwdData)
+	if err != nil {
+		return err
+	}
+	logger.Info("Successfully read db password from secret store", "secretName", secret.Name)
+	return nil
+}
+
 // nmaCertLookupFromSecretStore retrieves PEM-encoded text of CA certs, the server cert, and
 // the server key directly from a secret store.
 func (c *CmdScrutinize) nmaCertLookupFromSecretStore(logger vlog.Printer) (bool, error) {
-	_, portSet := os.LookupEnv(kubernetesPort)
-	if !portSet {
+	if !isK8sEnvironment() {
 		return false, nil
 	}
+
 	logger.Info("K8s environment")
-	secretNameSpace, nameSpaceSet := os.LookupEnv(secretNameSpaceEnvVar)
-	secretName, nameSet := os.LookupEnv(secretNameEnvVar)
-
-	// either secret namespace/name must be set, or none at all
-	if !((nameSpaceSet && nameSet) || (!nameSpaceSet && !nameSet)) {
-		missingParamError := constructMissingParamsMsg([]bool{nameSpaceSet, nameSet},
-			[]string{secretNameSpaceEnvVar, secretNameEnvVar})
-		return false, fmt.Errorf("all or none of the environment variables %s and %s must be set. %s",
-			secretNameSpaceEnvVar, secretNameEnvVar, missingParamError)
+	secret, err := lookupAndCheckSecretEnvVars(secretNameEnvVar, secretNameSpaceEnvVar)
+	if secret == nil || err != nil {
+		if err == nil {
+			logger.Info("Secret name not set in env. Failback to other cert retieval methods.")
+		}
+		return false, err
 	}
 
-	if !nameSpaceSet {
-		logger.Info("Secret name not set in env. Failback to other cert retieval methods.")
-		return false, nil
-	}
-
-	caCert, cert, key, err := c.secretStoreRetriever.RetrieveSecret(logger, secretNameSpace, secretName)
+	certData, err := c.secretStoreRetriever.RetrieveSecret(logger, secret.Namespace, secret.Name)
 	if err != nil {
-		return false, fmt.Errorf("failed to read certs from secret store with name %s in namespace %s: %w", secretName, secretNameSpace, err)
+		return false, err
 	}
-	if len(caCert) != 0 && len(cert) != 0 && len(key) != 0 {
-		logger.Info("Successfully read cert from secret store", "secretName", secretName, "secretNameSpace", secretNameSpace)
-	} else {
-		return false, fmt.Errorf("failed to read CA, cert or key (sizes = %d/%d/%d)",
-			len(caCert), len(cert), len(key))
+	err = c.extractNMACerts(certData)
+	if err != nil {
+		return false, err
 	}
-	c.sOptions.CaCert = string(caCert)
-	c.sOptions.Cert = string(cert)
-	c.sOptions.Key = string(key)
-
+	logger.Info("Successfully read cert from secret store", "secretName", secret.Name, "secretNameSpace", secret.Namespace)
 	return true, nil
 }
 
@@ -332,6 +440,50 @@ func (c *CmdScrutinize) nmaCertLookupFromEnv(logger vlog.Printer) (bool, error) 
 	return true, nil
 }
 
+// readOptionsFromK8sEnv picks up the catalog path and dbname from the environment when on k8s
+// which otherwise would need to be set at the command line or read from a config file.
+func (c *CmdScrutinize) readOptionsFromK8sEnv(logger vlog.Printer) (allErrs error) {
+	if !isK8sEnvironment() {
+		return
+	}
+
+	logger.Info("k8s environment detected")
+	dbName, found := os.LookupEnv(databaseName)
+	if !found || dbName == "" {
+		allErrs = errors.Join(allErrs, fmt.Errorf("unable to get database name from environment variable. "))
+	} else {
+		c.sOptions.DBName = dbName
+		logger.Info("Setting database name from env as", "DBName", c.sOptions.DBName)
+	}
+
+	catPrefix, found := os.LookupEnv(catalogPathPref)
+	if !found || catPrefix == "" {
+		allErrs = errors.Join(allErrs, fmt.Errorf("unable to get catalog path from environment variable. "))
+	} else {
+		c.sOptions.CatalogPrefix = catPrefix
+		logger.Info("Setting catalog path from env as", "CatalogPrefix", c.sOptions.CatalogPrefix)
+	}
+	return
+}
+
+// validateTarballName checks that the tarball name has the correct format
+func (c *CmdScrutinize) validateTarballName(logger vlog.Printer) {
+	if c.sOptions.TarballName == "" {
+		logger.Info("The tarball name is empty. An auto-generated will be used")
+	}
+	// Regular expression pattern
+	const pattern = `^VerticaScrutinize\.\d{14}$`
+
+	// Compile the regular expression
+	re := regexp.MustCompile(pattern)
+
+	// Check if the string matches the pattern
+	if re.MatchString(c.sOptions.TarballName) {
+		return
+	}
+	logger.DisplayWarning("The tarball name does not match GRASP regex VerticaScrutinize.yyyymmddhhmmss")
+}
+
 // readNonEmptyFile is a helper that reads the contents of a file into a string.
 // It returns an error if the file is empty.
 func readNonEmptyFile(filename string) (string, error) {
@@ -362,4 +514,32 @@ func constructMissingParamsMsg(exists []bool, params []string) string {
 		}
 	}
 	return warningBuilder.String()
+}
+
+// lookupAndCheckSecretEnvVars retrieves the values of the secret environment variables
+// and checks if they are valid
+func lookupAndCheckSecretEnvVars(nameEnv, namespaceEnv string) (*types.NamespacedName, error) {
+	secretNameSpace, nameSpaceSet := os.LookupEnv(namespaceEnv)
+	secretName, nameSet := os.LookupEnv(nameEnv)
+
+	// either secret namespace/name must be set, or none at all
+	if !((nameSpaceSet && nameSet) || (!nameSpaceSet && !nameSet)) {
+		missingParamError := constructMissingParamsMsg([]bool{nameSpaceSet, nameSet},
+			[]string{secretNameSpaceEnvVar, secretNameEnvVar})
+		return nil, fmt.Errorf("all or none of the environment variables %s and %s must be set. %s",
+			secretNameSpaceEnvVar, secretNameEnvVar, missingParamError)
+	}
+	if !nameSpaceSet {
+		return nil, nil
+	}
+	secret := &types.NamespacedName{
+		Name:      secretName,
+		Namespace: secretNameSpace,
+	}
+	return secret, nil
+}
+
+// SetDatabaseOptions will assign a vclusterops.DatabaseOptions instance to the one in CmdScrutinize
+func (c *CmdScrutinize) SetDatabaseOptions(opt *vclusterops.DatabaseOptions) {
+	c.sOptions.DatabaseOptions = *opt
 }

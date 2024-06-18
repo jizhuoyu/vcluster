@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -19,8 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type nmaReIPOp struct {
@@ -34,13 +32,13 @@ type nmaReIPOp struct {
 	trimReIPData         bool
 }
 
-func makeNMAReIPOp(logger vlog.Printer,
+func makeNMAReIPOp(
 	reIPList []ReIPInfo,
 	vdb *VCoordinationDatabase,
 	trimReIPData bool) nmaReIPOp {
 	op := nmaReIPOp{}
 	op.name = "NMAReIPOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Update node IPs in catalog"
 	op.reIPList = reIPList
 	op.vdb = vdb
 	op.trimReIPData = trimReIPData

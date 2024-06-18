@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -25,6 +25,7 @@ const (
 	OneMinute                = 60 * OneSecond
 	StopDBTimeout            = 5 * OneMinute
 	StartupPollingTimeout    = 5 * OneMinute
+	StopPollingTimeout       = 5 * OneMinute
 	ScrutinizePollingTimeout = -1 * OneMinute // no timeout
 	PollingInterval          = 3 * OneSecond
 )
@@ -43,7 +44,7 @@ func pollState(poller statePoller, execContext *opEngineExecContext) error {
 	duration := time.Duration(timeout) * time.Second
 	count := 0
 	needTimeout := true
-	if timeout < 0 {
+	if timeout <= 0 {
 		needTimeout = false
 	}
 

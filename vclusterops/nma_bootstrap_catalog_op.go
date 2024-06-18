@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -19,8 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type nmaBootstrapCatalogOp struct {
@@ -53,13 +51,12 @@ type bootstrapCatalogRequestData struct {
 }
 
 func makeNMABootstrapCatalogOp(
-	logger vlog.Printer,
 	vdb *VCoordinationDatabase,
 	options *VCreateDatabaseOptions,
 	bootstrapHosts []string) (nmaBootstrapCatalogOp, error) {
 	op := nmaBootstrapCatalogOp{}
 	op.name = "NMABootstrapCatalogOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Bootstrap catalog"
 	// usually, only one node need bootstrap catalog
 	op.hosts = bootstrapHosts
 
@@ -97,20 +94,20 @@ func (op *nmaBootstrapCatalogOp) setupRequestBody(vdb *VCoordinationDatabase, op
 
 		bootstrapData.LicenseKey = vdb.LicensePathOnNode
 		// large cluster mode temporariliy disabled
-		bootstrapData.LargeCluster = *options.LargeCluster
-		if *options.P2p {
+		bootstrapData.LargeCluster = options.LargeCluster
+		if options.P2p {
 			bootstrapData.NetworkingMode = "pt2pt"
 		} else {
 			bootstrapData.NetworkingMode = "broadcast"
 		}
-		bootstrapData.SpreadLogging = *options.SpreadLogging
-		bootstrapData.SpreadLoggingLevel = *options.SpreadLoggingLevel
-		bootstrapData.Ipv6 = options.Ipv6.ToBool()
-		bootstrapData.SuperuserName = *options.UserName
+		bootstrapData.SpreadLogging = options.SpreadLogging
+		bootstrapData.SpreadLoggingLevel = options.SpreadLoggingLevel
+		bootstrapData.Ipv6 = options.IPv6
+		bootstrapData.SuperuserName = options.UserName
 		bootstrapData.DBPassword = *options.Password
 
 		// Flag to generate certs and tls configuration
-		bootstrapData.GenerateHTTPCerts = *options.GenerateHTTPCerts
+		bootstrapData.GenerateHTTPCerts = options.GenerateHTTPCerts
 
 		// Eon params
 		bootstrapData.NumShards = vdb.NumShards

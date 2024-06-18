@@ -1,5 +1,5 @@
 /*
- (c) Copyright [2023] Open Text.
+ (c) Copyright [2023-2024] Open Text.
  Licensed under the Apache License, Version 2.0 (the "License");
  You may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -20,17 +20,16 @@ import (
 	"fmt"
 
 	"github.com/vertica/vcluster/vclusterops/util"
-	"github.com/vertica/vcluster/vclusterops/vlog"
 )
 
 type nmaNetworkProfileOp struct {
 	opBase
 }
 
-func makeNMANetworkProfileOp(logger vlog.Printer, hosts []string) nmaNetworkProfileOp {
+func makeNMANetworkProfileOp(hosts []string) nmaNetworkProfileOp {
 	op := nmaNetworkProfileOp{}
 	op.name = "NMANetworkProfileOp"
-	op.logger = logger.WithName(op.name)
+	op.description = "Get network profile of cluster"
 	op.hosts = hosts
 	return op
 }
