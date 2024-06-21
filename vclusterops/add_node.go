@@ -269,9 +269,9 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 					vnode.Name, h)
 			}
 			// prevent sandbox nodes from being trimmed
-			if vnode.Sandbox != "" {
-				continue
-			}
+			// if vnode.Sandbox != "" {
+			// 	continue
+			// }
 			nodesToTrim = append(nodesToTrim, vnode.Name)
 		}
 	}
