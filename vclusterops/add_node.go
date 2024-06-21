@@ -268,6 +268,10 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 				return fmt.Errorf("cannot trim the UP node %s (address %s)",
 					vnode.Name, h)
 			}
+			// prevent sandbox nodes from being trimmed
+			if vnode.Sandbox != "" {
+				continue
+			}
 			nodesToTrim = append(nodesToTrim, vnode.Name)
 		}
 	}
