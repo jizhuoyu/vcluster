@@ -156,10 +156,14 @@ func (vcc VClusterCommands) VAddNode(options *VAddNodeOptions) (VCoordinationDat
 		return vdb, err
 	}
 
+	vcc.Log.Info("vdb.HostList after getVDBFromRunningDB", "vdb.HostList", vdb.HostList)
+
 	err = options.completeVDBSetting(&vdb)
 	if err != nil {
 		return vdb, err
 	}
+
+	vcc.Log.Info("vdb.HostList after completeVDBSetting", "vdb.HostList", vdb.HostList)
 
 	if vdb.IsEon {
 		// checking this here because now we have got eon value from
@@ -174,12 +178,16 @@ func (vcc VClusterCommands) VAddNode(options *VAddNodeOptions) (VCoordinationDat
 		return vdb, err
 	}
 
+	vcc.Log.Info("vdb.HostList before trimNodesInCatalog", "vdb.HostList", vdb.HostList)
+
 	// trim stale node information from catalog
 	// if NodeNames is provided
 	err = vcc.trimNodesInCatalog(&vdb, options)
 	if err != nil {
 		return vdb, err
 	}
+
+	vcc.Log.Info("vdb.HostList after trimNodesInCatalog", "vdb.HostList", vdb.HostList)
 
 	// add_node is aborted if requirements are not met.
 	// Here we check whether the nodes being added already exist
