@@ -150,9 +150,12 @@ func (vdb *VCoordinationDatabase) addNode(vnode *VCoordinationNode) error {
 
 // addHosts adds a given list of hosts to the VDB's HostList
 // and HostNodeMap.
-func (vdb *VCoordinationDatabase) addHosts(hosts []string, scName string) error {
+func (vdb *VCoordinationDatabase) addHosts(hosts []string, scName string, logger vlog.Printer) error {
 	totalHostCount := len(hosts) + len(vdb.HostList)
+	logger.Info("vdb.HostList", "vdb.HostList", vdb.HostList)
+	logger.Info("totalHostCount", "totalHostCount", totalHostCount)
 	nodeNameToHost := vdb.genNodeNameToHostMap()
+	logger.Info("nodeNameToHost begin", "nodeNameToHost", nodeNameToHost)
 	for _, host := range hosts {
 		vNode := makeVCoordinationNode()
 		name, ok := util.GenVNodeName(nodeNameToHost, vdb.Name, totalHostCount)
@@ -166,6 +169,7 @@ func (vdb *VCoordinationDatabase) addHosts(hosts []string, scName string) error 
 			return err
 		}
 	}
+	logger.Info("nodeNameToHost end", "nodeNameToHost", nodeNameToHost)
 
 	return nil
 }
