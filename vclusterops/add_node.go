@@ -264,6 +264,7 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 	}
 
 	var aliveHosts []string
+	var sandboxHosts []string
 	var nodesToTrim []string
 	nodeNamesInCatalog := make(map[string]any)
 	for h, vnode := range vdb.HostNodeMap {
@@ -278,6 +279,7 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 			}
 			// prevent sandbox nodes from being trimmed
 			if vnode.Sandbox != "" {
+				sandboxHosts = append(sandboxHosts, vnode.Name)
 				continue
 			}
 			nodesToTrim = append(nodesToTrim, vnode.Name)
@@ -328,6 +330,7 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 	}
 
 	// update vdb info
+	aliveHosts = append(aliveHosts, sandboxHosts...)
 	vdb.HostNodeMap = util.FilterMapByKey(vdb.HostNodeMap, aliveHosts)
 	vdb.HostList = aliveHosts
 
