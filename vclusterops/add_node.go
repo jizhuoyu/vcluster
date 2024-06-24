@@ -156,14 +156,10 @@ func (vcc VClusterCommands) VAddNode(options *VAddNodeOptions) (VCoordinationDat
 		return vdb, err
 	}
 
-	vcc.Log.Info("vdb.HostList after getVDBFromRunningDB", "vdb.HostList", vdb.HostList)
-
 	err = options.completeVDBSetting(&vdb)
 	if err != nil {
 		return vdb, err
 	}
-
-	vcc.Log.Info("vdb.HostList after completeVDBSetting", "vdb.HostList", vdb.HostList)
 
 	if vdb.IsEon {
 		// checking this here because now we have got eon value from
@@ -178,16 +174,12 @@ func (vcc VClusterCommands) VAddNode(options *VAddNodeOptions) (VCoordinationDat
 		return vdb, err
 	}
 
-	vcc.Log.Info("vdb.HostList before trimNodesInCatalog", "vdb.HostList", vdb.HostList)
-
 	// trim stale node information from catalog
 	// if NodeNames is provided
 	globalHostNodeMap, err := vcc.trimNodesInCatalog(&vdb, options)
 	if err != nil {
 		return vdb, err
 	}
-
-	vcc.Log.Info("vdb.HostList after trimNodesInCatalog", "vdb.HostList", vdb.HostList)
 
 	// add_node is aborted if requirements are not met.
 	// Here we check whether the nodes being added already exist
@@ -196,7 +188,7 @@ func (vcc VClusterCommands) VAddNode(options *VAddNodeOptions) (VCoordinationDat
 		return vdb, err
 	}
 
-	err = vdb.addHosts(options.NewHosts, options.SCName, globalHostNodeMap, vcc.Log)
+	err = vdb.addHosts(options.NewHosts, options.SCName, globalHostNodeMap)
 	if err != nil {
 		return vdb, err
 	}
@@ -251,10 +243,12 @@ func (options *VAddNodeOptions) completeVDBSetting(vdb *VCoordinationDatabase) e
 // which can be used to remove partially added nodes
 func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 	options *VAddNodeOptions) (vHostNodeMap, error) {
-	globalMap := make(vHostNodeMap)
+	// globalHostNodeMap has entries for nodes in all clusters (main and sandboxes)
+	// so that node names could be correctly generated in later steps
+	globalHostNodeMap := make(vHostNodeMap)
 	if len(options.ExpectedNodeNames) == 0 {
 		vcc.Log.Info("ExpectedNodeNames is not set, skip trimming nodes", "ExpectedNodeNames", options.ExpectedNodeNames)
-		return globalMap, nil
+		return globalHostNodeMap, nil
 	}
 
 	// find out nodes to be trimmed
@@ -274,7 +268,7 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 		} else { // catalog node is not expected, trim it
 			// cannot trim UP nodes
 			if vnode.State == util.NodeUpState {
-				return globalMap, fmt.Errorf("cannot trim the UP node %s (address %s)",
+				return globalHostNodeMap, fmt.Errorf("cannot trim the UP node %s (address %s)",
 					vnode.Name, h)
 			}
 			// prevent sandbox nodes from being trimmed
@@ -288,7 +282,7 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 	// sanity check: all provided node names should be found in catalog
 	invalidNodeNames := util.MapKeyDiff(expectedNodeNames, nodeNamesInCatalog)
 	if len(invalidNodeNames) > 0 {
-		return globalMap, fmt.Errorf("node names %v are not found in database %s",
+		return globalHostNodeMap, fmt.Errorf("node names %v are not found in database %s",
 			invalidNodeNames, vdb.Name)
 	}
 
@@ -305,7 +299,7 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 			options.usePassword, options.UserName, options.Password,
 			ksafeValueZero)
 		if err != nil {
-			return globalMap, err
+			return globalHostNodeMap, err
 		}
 		instructions = append(instructions, &httpsMarkDesignKSafeOp)
 	}
@@ -315,7 +309,7 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 		httpsDropNodeOp, err := makeHTTPSDropNodeOp(nodeName, initiator,
 			options.usePassword, options.UserName, options.Password, vdb.IsEon)
 		if err != nil {
-			return globalMap, err
+			return globalHostNodeMap, err
 		}
 		instructions = append(instructions, &httpsDropNodeOp)
 	}
@@ -325,15 +319,15 @@ func (vcc VClusterCommands) trimNodesInCatalog(vdb *VCoordinationDatabase,
 	err := clusterOpEngine.run(vcc.Log)
 	if err != nil {
 		vcc.Log.Error(err, "fail to trim nodes from catalog, %v")
-		return globalMap, err
+		return globalHostNodeMap, err
 	}
 
 	// update vdb info
-	globalMap = util.CopyMap(vdb.HostNodeMap)
+	globalHostNodeMap = util.CopyMap(vdb.HostNodeMap)
 	vdb.HostNodeMap = util.FilterMapByKey(vdb.HostNodeMap, aliveHosts)
 	vdb.HostList = aliveHosts
 
-	return globalMap, nil
+	return globalHostNodeMap, nil
 }
 
 // produceAddNodeInstructions will build a list of instructions to execute for
